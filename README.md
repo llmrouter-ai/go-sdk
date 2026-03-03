@@ -1,11 +1,11 @@
-# LLMRouter Go SDK
+# ARouter Go SDK
 
-Official Go client for the [LLMRouter](https://github.com/llmrouter-ai) API gateway — one API key, every LLM provider.
+Official Go client for the [ARouter](https://github.com/arouter-ai) API gateway — one API key, every LLM provider.
 
 ## Installation
 
 ```bash
-go get github.com/llmrouter/llmrouter-go
+go get github.com/arouter-ai/arouter-go
 ```
 
 > Requires Go 1.21+. Zero external dependencies.
@@ -20,15 +20,15 @@ import (
 	"fmt"
 	"log"
 
-	llmrouter "github.com/llmrouter/llmrouter-go"
+	arouter "github.com/arouter-ai/arouter-go"
 )
 
 func main() {
-	client := llmrouter.NewClient("https://api.llmrouter.io", "lr_live_xxx")
+	client := arouter.NewClient("https://api.arouter.io", "lr_live_xxx")
 
-	resp, err := client.ChatCompletion(context.Background(), &llmrouter.ChatCompletionRequest{
+	resp, err := client.ChatCompletion(context.Background(), &arouter.ChatCompletionRequest{
 		Model: "openrouter/anthropic/claude-sonnet-4",
-		Messages: []llmrouter.Message{
+		Messages: []arouter.Message{
 			{Role: "user", Content: "Hello!"},
 		},
 	})
@@ -44,15 +44,16 @@ func main() {
 
 | Category | Methods |
 |----------|---------|
-| **LLM** | `ChatCompletion`, `ChatCompletionStream`, `ProxyRequest` |
-| **Admin** | `CreateSubKey`, `ListSubKeys`, `RevokeSubKey` |
+| **LLM** | `ChatCompletion`, `ChatCompletionStream`, `CreateEmbedding`, `ListModels`, `ProxyRequest` |
+| **Keys** | `CreateKey`, `ListKeys`, `UpdateKey`, `DeleteKey` |
+| **Usage** | `GetUsageSummary`, `GetUsageTimeSeries` |
 
 ## Streaming
 
 ```go
-stream, err := client.ChatCompletionStream(ctx, &llmrouter.ChatCompletionRequest{
+stream, err := client.ChatCompletionStream(ctx, &arouter.ChatCompletionRequest{
 	Model:    "openrouter/anthropic/claude-sonnet-4",
-	Messages: []llmrouter.Message{{Role: "user", Content: "Tell me a story"}},
+	Messages: []arouter.Message{{Role: "user", Content: "Tell me a story"}},
 })
 if err != nil {
 	log.Fatal(err)
@@ -61,7 +62,7 @@ defer stream.Close()
 
 for {
 	chunk, err := stream.Recv()
-	if err == llmrouter.ErrStreamDone {
+	if err == arouter.ErrStreamDone {
 		break
 	}
 	if err != nil {
@@ -71,37 +72,71 @@ for {
 }
 ```
 
-## Sub-Key Management
+## Key Management
 
-Main keys (`lr_live_`) can create scoped sub-keys with provider/model restrictions, rate limits, and quotas — no dashboard login required.
+Management keys (`lr_mgmt_`) can create and manage API keys with provider/model restrictions, rate limits, and quotas — no dashboard login required.
 
 ```go
-sub, err := client.CreateSubKey(ctx, &llmrouter.CreateSubKeyRequest{
+mgmtClient := arouter.NewClient("https://api.arouter.io", "lr_mgmt_xxx")
+
+key, err := mgmtClient.CreateKey(ctx, &arouter.CreateKeyRequest{
 	Name:             "worker-1",
-	AllowedProviders: []string{"openrouter"},
-	AllowedModels:    []string{"openrouter/anthropic/claude-sonnet-4"},
-	RateLimit: &llmrouter.RateLimitConfig{
-		RequestsPerMinute: 60,
-	},
+	AllowedProviders: []string{"openai", "anthropic"},
+	AllowedModels:    []string{"gpt-4o", "claude-sonnet-4-20250514"},
+	Limit:            float64Ptr(150),
+	LimitReset:       "monthly",
 })
 if err != nil {
 	log.Fatal(err)
 }
-fmt.Println("Sub-key:", sub.RawKey) // lr_sub_xxx
+fmt.Println("API Key:", key.Key) // lr_live_xxx
 
-// List all sub-keys
-keys, _ := client.ListSubKeys(ctx, nil)
-for _, k := range keys.Keys {
-	fmt.Println(k.ID, k.Name)
+// List all keys
+keys, _ := mgmtClient.ListKeys(ctx, nil)
+for _, k := range keys.Data {
+	fmt.Println(k.Hash, k.Name)
 }
 
-// Revoke
-_ = client.RevokeSubKey(ctx, sub.Key.ID)
+// Update a key
+mgmtClient.UpdateKey(ctx, key.Data.Hash, &arouter.UpdateKeyRequest{
+	Disabled: boolPtr(true),
+})
+
+// Delete a key
+mgmtClient.DeleteKey(ctx, key.Data.Hash)
+```
+
+## Embeddings
+
+```go
+resp, err := client.CreateEmbedding(ctx, &arouter.EmbeddingRequest{
+	Model: "openai/text-embedding-3-small",
+	Input: "Hello, world",
+})
+```
+
+## List Models
+
+```go
+models, err := client.ListModels(ctx)
+for _, m := range models.Data {
+	fmt.Printf("%s (by %s)\n", m.ID, m.OwnedBy)
+}
+```
+
+## Usage Analytics
+
+```go
+summary, err := client.GetUsageSummary(ctx, &arouter.UsageQuery{
+	StartTime: "2025-01-01T00:00:00Z",
+	EndTime:   "2025-01-31T23:59:59Z",
+})
+fmt.Println(summary) // Requests: 1234 | Tokens: 56789 | Cost: $1.23
 ```
 
 ## Provider Proxy
 
-Forward raw requests to any provider endpoint (embeddings, images, audio, etc.):
+Forward raw requests to any provider endpoint:
 
 ```go
 body := strings.NewReader(`{"input": "hello", "model": "text-embedding-3-small"}`)
@@ -110,32 +145,31 @@ if err != nil {
 	log.Fatal(err)
 }
 defer resp.Body.Close()
-// read resp.Body ...
 ```
 
 ## Client Options
 
 ```go
-client := llmrouter.NewClient(baseURL, apiKey,
-	llmrouter.WithTimeout(60 * time.Second),
-	llmrouter.WithHTTPClient(customHTTPClient),
+client := arouter.NewClient(baseURL, apiKey,
+	arouter.WithTimeout(60 * time.Second),
+	arouter.WithHTTPClient(customHTTPClient),
 )
 ```
 
 ## Error Handling
 
-All API errors are returned as `*llmrouter.APIError` and support `errors.Is` matching:
+All API errors are returned as `*arouter.APIError` and support `errors.Is` matching:
 
 ```go
 _, err := client.ChatCompletion(ctx, req)
-if errors.Is(err, llmrouter.ErrRateLimited) {
+if errors.Is(err, arouter.ErrRateLimited) {
 	// back off and retry
 }
-if errors.Is(err, llmrouter.ErrQuotaExceeded) {
+if errors.Is(err, arouter.ErrQuotaExceeded) {
 	// quota exhausted
 }
 
-var apiErr *llmrouter.APIError
+var apiErr *arouter.APIError
 if errors.As(err, &apiErr) {
 	fmt.Println(apiErr.StatusCode, apiErr.Code, apiErr.Message)
 }

@@ -1,4 +1,4 @@
-package llmrouter
+package arouter
 
 import (
 	"bytes"
@@ -13,27 +13,28 @@ import (
 
 const defaultTimeout = 30 * time.Second
 
-// Client is the LLMRouter SDK client.
+// Client is the ARouter SDK client.
 //
 // Initialize with just a base URL and API key — no tenant ID, JWT, or
 // login credentials needed. The server identifies your tenant from the key.
 //
-//	client := llmrouter.NewClient("https://api.llmrouter.io", "lr_live_xxx")
+//	client := arouter.NewClient("https://api.arouter.io", "lr_live_xxx")
 //
-// The client provides two groups of methods:
+// The client provides three groups of methods:
 //
-//	Admin:  CreateSubKey, ListSubKeys, RevokeSubKey
-//	LLM:    ChatCompletion, ChatCompletionStream, ProxyRequest
+//	LLM:    ChatCompletion, ChatCompletionStream, CreateEmbedding, ListModels, ProxyRequest
+//	Keys:   CreateKey, ListKeys, UpdateKey, DeleteKey
+//	Usage:  GetUsageSummary, GetUsageTimeSeries
 type Client struct {
 	baseURL    string
 	apiKey     string
 	httpClient *http.Client
 }
 
-// NewClient creates a new LLMRouter client.
+// NewClient creates a new ARouter client.
 //
-//	baseURL is the root URL of the LLMRouter gateway (e.g. "https://api.llmrouter.io").
-//	apiKey  is your API key (lr_live_xxx or lr_sub_xxx).
+//	baseURL is the root URL of the ARouter gateway (e.g. "https://api.arouter.io").
+//	apiKey  is your API key (lr_live_xxx) or management key (lr_mgmt_xxx).
 func NewClient(baseURL, apiKey string, opts ...Option) *Client {
 	c := &Client{
 		baseURL:    strings.TrimRight(baseURL, "/"),
@@ -54,7 +55,7 @@ func (c *Client) newRequest(ctx context.Context, method, path string, body any) 
 	if body != nil {
 		buf, err := json.Marshal(body)
 		if err != nil {
-			return nil, fmt.Errorf("llmrouter: marshal request: %w", err)
+			return nil, fmt.Errorf("arouter: marshal request: %w", err)
 		}
 		reader = bytes.NewReader(buf)
 	}
@@ -75,7 +76,7 @@ func (c *Client) newRequest(ctx context.Context, method, path string, body any) 
 func (c *Client) do(req *http.Request, dst any) error {
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("llmrouter: request failed: %w", err)
+		return fmt.Errorf("arouter: request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -85,7 +86,7 @@ func (c *Client) do(req *http.Request, dst any) error {
 
 	if dst != nil {
 		if err := json.NewDecoder(resp.Body).Decode(dst); err != nil {
-			return fmt.Errorf("llmrouter: decode response: %w", err)
+			return fmt.Errorf("arouter: decode response: %w", err)
 		}
 	}
 	return nil

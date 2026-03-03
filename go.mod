@@ -1,3 +1,3 @@
-module github.com/llmrouter/llmrouter-go
+module github.com/arouter-ai/arouter/sdks/golang
 
 go 1.25.0

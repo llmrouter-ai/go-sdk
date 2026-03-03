@@ -1,4 +1,4 @@
-package llmrouter
+package arouter
 
 import (
 	"bufio"
@@ -10,7 +10,7 @@ import (
 )
 
 // ErrStreamDone is returned by Recv when the stream has ended normally.
-var ErrStreamDone = errors.New("llmrouter: stream done")
+var ErrStreamDone = errors.New("arouter: stream done")
 
 // ChatCompletionStream reads server-sent events from a streaming chat
 // completion response.

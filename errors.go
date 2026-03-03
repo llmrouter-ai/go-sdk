@@ -1,4 +1,4 @@
-package llmrouter
+package arouter
 
 import (
 	"errors"
@@ -7,16 +7,16 @@ import (
 
 // Sentinel errors for common API failure modes.
 var (
-	ErrUnauthorized  = errors.New("llmrouter: unauthorized")
-	ErrForbidden     = errors.New("llmrouter: forbidden")
-	ErrNotFound      = errors.New("llmrouter: not found")
-	ErrRateLimited   = errors.New("llmrouter: rate limited")
-	ErrQuotaExceeded = errors.New("llmrouter: quota exceeded")
-	ErrBadRequest    = errors.New("llmrouter: bad request")
-	ErrServerError   = errors.New("llmrouter: server error")
+	ErrUnauthorized  = errors.New("arouter: unauthorized")
+	ErrForbidden     = errors.New("arouter: forbidden")
+	ErrNotFound      = errors.New("arouter: not found")
+	ErrRateLimited   = errors.New("arouter: rate limited")
+	ErrQuotaExceeded = errors.New("arouter: quota exceeded")
+	ErrBadRequest    = errors.New("arouter: bad request")
+	ErrServerError   = errors.New("arouter: server error")
 )
 
-// APIError is returned when the LLMRouter API responds with a non-2xx status.
+// APIError is returned when the ARouter API responds with a non-2xx status.
 type APIError struct {
 	StatusCode int    `json:"status_code"`
 	Code       string `json:"code"`
@@ -25,9 +25,9 @@ type APIError struct {
 
 func (e *APIError) Error() string {
 	if e.Code != "" {
-		return fmt.Sprintf("llmrouter: %d %s: %s", e.StatusCode, e.Code, e.Message)
+		return fmt.Sprintf("arouter: %d %s: %s", e.StatusCode, e.Code, e.Message)
 	}
-	return fmt.Sprintf("llmrouter: %d: %s", e.StatusCode, e.Message)
+	return fmt.Sprintf("arouter: %d: %s", e.StatusCode, e.Message)
 }
 
 // Unwrap maps the APIError to its corresponding sentinel error so callers can

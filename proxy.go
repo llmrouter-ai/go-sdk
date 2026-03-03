@@ -1,4 +1,4 @@
-package llmrouter
+package arouter
 
 import (
 	"context"
@@ -11,9 +11,9 @@ import (
 
 // ChatCompletion sends a non-streaming chat completion request.
 //
-//	resp, err := client.ChatCompletion(ctx, &llmrouter.ChatCompletionRequest{
+//	resp, err := client.ChatCompletion(ctx, &arouter.ChatCompletionRequest{
 //	    Model:    "openrouter/anthropic/claude-sonnet-4",
-//	    Messages: []llmrouter.Message{{Role: "user", Content: "Hello"}},
+//	    Messages: []arouter.Message{{Role: "user", Content: "Hello"}},
 //	})
 func (c *Client) ChatCompletion(ctx context.Context, req *ChatCompletionRequest) (*ChatCompletionResponse, error) {
 	req.Stream = false
@@ -33,9 +33,9 @@ func (c *Client) ChatCompletion(ctx context.Context, req *ChatCompletionRequest)
 // ChatCompletionStream sends a streaming chat completion request and returns a
 // stream reader. The caller must call Close on the returned stream when done.
 //
-//	stream, err := client.ChatCompletionStream(ctx, &llmrouter.ChatCompletionRequest{
+//	stream, err := client.ChatCompletionStream(ctx, &arouter.ChatCompletionRequest{
 //	    Model:    "openrouter/anthropic/claude-sonnet-4",
-//	    Messages: []llmrouter.Message{{Role: "user", Content: "Hello"}},
+//	    Messages: []arouter.Message{{Role: "user", Content: "Hello"}},
 //	})
 //	defer stream.Close()
 //	for { chunk, err := stream.Recv(); ... }
@@ -50,7 +50,7 @@ func (c *Client) ChatCompletionStream(ctx context.Context, req *ChatCompletionRe
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("llmrouter: request failed: %w", err)
+		return nil, fmt.Errorf("arouter: request failed: %w", err)
 	}
 
 	if resp.StatusCode >= 400 {
@@ -59,6 +59,39 @@ func (c *Client) ChatCompletionStream(ctx context.Context, req *ChatCompletionRe
 	}
 
 	return newChatCompletionStream(resp), nil
+}
+
+// ListModels returns the list of available models.
+func (c *Client) ListModels(ctx context.Context) (*ModelListResponse, error) {
+	httpReq, err := c.newRequest(ctx, http.MethodGet, "/v1/models", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp ModelListResponse
+	if err := c.do(httpReq, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// CreateEmbedding creates vector embeddings for the given input.
+//
+//	resp, err := client.CreateEmbedding(ctx, &arouter.EmbeddingRequest{
+//	    Model: "openai/text-embedding-3-small",
+//	    Input: "Hello, world",
+//	})
+func (c *Client) CreateEmbedding(ctx context.Context, req *EmbeddingRequest) (*EmbeddingResponse, error) {
+	httpReq, err := c.newRequest(ctx, http.MethodPost, "/v1/embeddings", req)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp EmbeddingResponse
+	if err := c.do(httpReq, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
 }
 
 // ProxyRequest sends a raw request through the LLM provider proxy.
@@ -77,7 +110,7 @@ func (c *Client) ProxyRequest(ctx context.Context, provider, path string, body i
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("llmrouter: request failed: %w", err)
+		return nil, fmt.Errorf("arouter: request failed: %w", err)
 	}
 
 	if resp.StatusCode >= 400 {
