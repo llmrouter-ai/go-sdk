@@ -1,6 +1,9 @@
 package arouter
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"io"
+)
 
 // ==================== LLM Types ====================
 
@@ -279,6 +282,73 @@ type UsageDataPoint struct {
 	InputTokens      int64   `json:"input_tokens"`
 	OutputTokens     int64   `json:"output_tokens"`
 	EstimatedCostUSD float64 `json:"estimated_cost_usd"`
+}
+
+// ==================== Audio Types (OpenAI-compatible) ====================
+
+// TranscriptionRequest is the request payload for POST /v1/audio/transcriptions.
+// Provide either FilePath or FileReader (with FileName) for the audio source.
+type TranscriptionRequest struct {
+	Model                  string    `json:"model"`
+	FilePath               string    `json:"-"`
+	FileReader             io.Reader `json:"-"`
+	FileName               string    `json:"-"`
+	Language               string    `json:"language,omitempty"`
+	Prompt                 string    `json:"prompt,omitempty"`
+	ResponseFormat         string    `json:"response_format,omitempty"`
+	Temperature            *float64  `json:"temperature,omitempty"`
+	TimestampGranularities []string  `json:"timestamp_granularities,omitempty"`
+}
+
+// TranscriptionResponse is the response from POST /v1/audio/transcriptions.
+type TranscriptionResponse struct {
+	Text     string               `json:"text"`
+	Task     string               `json:"task,omitempty"`
+	Language string               `json:"language,omitempty"`
+	Duration float64              `json:"duration,omitempty"`
+	Words    []TranscriptionWord  `json:"words,omitempty"`
+	Segments []TranscriptionSegment `json:"segments,omitempty"`
+}
+
+// TranscriptionWord represents a single word with timestamps (verbose_json).
+type TranscriptionWord struct {
+	Word  string  `json:"word"`
+	Start float64 `json:"start"`
+	End   float64 `json:"end"`
+}
+
+// TranscriptionSegment represents a segment of transcribed audio (verbose_json).
+type TranscriptionSegment struct {
+	ID               int     `json:"id"`
+	Seek             int     `json:"seek"`
+	Start            float64 `json:"start"`
+	End              float64 `json:"end"`
+	Text             string  `json:"text"`
+	Tokens           []int   `json:"tokens"`
+	Temperature      float64 `json:"temperature"`
+	AvgLogprob       float64 `json:"avg_logprob"`
+	CompressionRatio float64 `json:"compression_ratio"`
+	NoSpeechProb     float64 `json:"no_speech_prob"`
+}
+
+// TranslationRequest is the request payload for POST /v1/audio/translations.
+type TranslationRequest struct {
+	Model          string    `json:"model"`
+	FilePath       string    `json:"-"`
+	FileReader     io.Reader `json:"-"`
+	FileName       string    `json:"-"`
+	Prompt         string    `json:"prompt,omitempty"`
+	ResponseFormat string    `json:"response_format,omitempty"`
+	Temperature    *float64  `json:"temperature,omitempty"`
+}
+
+// TranslationResponse is the response from POST /v1/audio/translations.
+type TranslationResponse struct {
+	Text     string                 `json:"text"`
+	Task     string                 `json:"task,omitempty"`
+	Language string                 `json:"language,omitempty"`
+	Duration float64                `json:"duration,omitempty"`
+	Segments []TranscriptionSegment `json:"segments,omitempty"`
 }
 
 // Legacy types kept for backward compat in internal usage
