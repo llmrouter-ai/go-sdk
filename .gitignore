@@ -2,3 +2,5 @@ examples/basic/arouter-example
 examples/basic/basic
 examples/subkey-flow/arouter-subkey-flow
 examples/subkey-flow/subkey-flow
+test-e2e
+cmd/test-e2e/test-e2e
