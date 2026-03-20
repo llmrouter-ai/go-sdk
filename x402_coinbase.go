@@ -1,10 +1,14 @@
 package arouter
 
 import (
+	"bytes"
 	"crypto/ecdsa"
 	"crypto/ed25519"
+	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -25,8 +29,8 @@ import (
 // for automatic on-chain USDC payment on EVM networks (Base, Ethereum, etc.).
 //
 // On the first request the gateway returns 402, the x402 SDK signs payment
-// and retries. The response includes an X-API-Key header which is cached
-// and used as Bearer token for all subsequent requests.
+// and retries. The response includes a wallet JWT in PAYMENT-RESPONSE
+// which is cached and used as Bearer token for all subsequent requests.
 //
 //	key, _ := crypto.HexToECDSA("your-private-key-hex")
 //	client := arouter.NewClient(baseURL, "",
@@ -48,7 +52,7 @@ func WithX402CoinbasePayment(privateKey *ecdsa.PrivateKey) Option {
 			c.httpClient,
 			x402http.Newx402HTTPClient(x402Client),
 		)
-		wrapWithAPIKeyCache(c)
+		wrapWithJWTCache(c, NewEvmWalletSigner(privateKey), nil)
 	}
 }
 
@@ -88,12 +92,15 @@ func WithX402SolanaPayment(privateKey ed25519.PrivateKey) Option {
 			c.httpClient,
 			x402http.Newx402HTTPClient(x402Client),
 		)
-		wrapWithAPIKeyCache(c)
+		wrapWithJWTCache(c, NewSolanaWalletSigner(privateKey), nil)
 	}
 }
 
 // WithX402DualChainPayment configures both EVM and Solana x402 payment in one call.
-func WithX402DualChainPayment(evmKey *ecdsa.PrivateKey, solKey ed25519.PrivateKey) Option {
+// The authSigner is the wallet used for SIWx JWT renewal on 401 — it MUST match the
+// wallet that was used for first registration. Pass the EVM signer if the first payment
+// was on EVM, or the Solana signer if the first payment was on Solana.
+func WithX402DualChainPayment(evmKey *ecdsa.PrivateKey, solKey ed25519.PrivateKey, authSigner WalletSigner) Option {
 	return func(c *Client) {
 		keyHex := hex.EncodeToString(crypto.FromECDSA(evmKey))
 		evmSigner, err := evmsigners.NewClientSignerFromPrivateKey(keyHex)
@@ -117,36 +124,57 @@ func WithX402DualChainPayment(evmKey *ecdsa.PrivateKey, solKey ed25519.PrivateKe
 			c.httpClient,
 			x402http.Newx402HTTPClient(x402Client),
 		)
-		wrapWithAPIKeyCache(c)
+		wrapWithJWTCache(c, authSigner, nil)
 	}
 }
 
-// wrapWithAPIKeyCache wraps the client's HTTP transport to cache the X-API-Key
-// header from x402 payment responses and inject it as Bearer token on subsequent requests.
-func wrapWithAPIKeyCache(c *Client) {
+// wrapWithJWTCache wraps the client's HTTP transport to cache the wallet JWT
+// from PAYMENT-RESPONSE and inject it as Bearer token on subsequent requests.
+func wrapWithJWTCache(c *Client, signer WalletSigner, opts *SIWxOptions) {
 	base := c.httpClient.Transport
 	if base == nil {
 		base = http.DefaultTransport
 	}
-	c.httpClient.Transport = &apiKeyCachingTransport{base: base}
+	c.httpClient.Transport = &jwtCachingTransport{base: base, baseURL: c.baseURL, signer: signer, siwxOptions: opts}
 }
 
-type apiKeyCachingTransport struct {
-	base   http.RoundTripper
-	apiKey string
-	mu     sync.Mutex
+type jwtCachingTransport struct {
+	base        http.RoundTripper
+	baseURL     string
+	signer      WalletSigner
+	siwxOptions *SIWxOptions
+	jwt         string
+	mu          sync.Mutex
 }
 
-func (t *apiKeyCachingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+func (t *jwtCachingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	t.mu.Lock()
-	key := t.apiKey
+	cachedJWT := t.jwt
 	t.mu.Unlock()
 
-	if key != "" {
+	// Snapshot body before first RoundTrip so we can replay on 401 retry.
+	var bodyBytes []byte
+	if req.Body != nil {
+		var err error
+		bodyBytes, err = io.ReadAll(req.Body)
+		req.Body.Close()
+		if err != nil {
+			return nil, fmt.Errorf("jwtCachingTransport: read body: %w", err)
+		}
+		req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+		req.GetBody = func() (io.ReadCloser, error) {
+			return io.NopCloser(bytes.NewReader(bodyBytes)), nil
+		}
+	}
+
+	if cachedJWT != "" {
 		auth := req.Header.Get("Authorization")
 		if auth == "" || auth == "Bearer" || auth == "Bearer " {
 			req = req.Clone(req.Context())
-			req.Header.Set("Authorization", "Bearer "+key)
+			req.Header.Set("Authorization", "Bearer "+cachedJWT)
+			if bodyBytes != nil {
+				req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+			}
 		}
 	}
 
@@ -155,10 +183,33 @@ func (t *apiKeyCachingTransport) RoundTrip(req *http.Request) (*http.Response, e
 		return resp, err
 	}
 
-	if newKey := resp.Header.Get("X-API-Key"); newKey != "" {
-		t.mu.Lock()
-		t.apiKey = newKey
-		t.mu.Unlock()
+	if paymentResponse := resp.Header.Get("PAYMENT-RESPONSE"); paymentResponse != "" {
+		if decoded, err := base64.StdEncoding.DecodeString(paymentResponse); err == nil {
+			var payload struct {
+				JWT string `json:"jwt"`
+			}
+			if json.Unmarshal(decoded, &payload) == nil && payload.JWT != "" {
+				t.mu.Lock()
+				t.jwt = payload.JWT
+				t.mu.Unlock()
+			}
+		}
+	}
+
+	if resp.StatusCode == http.StatusUnauthorized && t.signer != nil {
+		resp.Body.Close()
+		result, siwxErr := AuthenticateWithSIWx(req.Context(), t.baseURL, t.signer, t.siwxOptions)
+		if siwxErr == nil && result.JWT != "" {
+			t.mu.Lock()
+			t.jwt = result.JWT
+			t.mu.Unlock()
+			retryReq := req.Clone(req.Context())
+			retryReq.Header.Set("Authorization", "Bearer "+result.JWT)
+			if bodyBytes != nil {
+				retryReq.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+			}
+			return t.base.RoundTrip(retryReq)
+		}
 	}
 
 	return resp, err

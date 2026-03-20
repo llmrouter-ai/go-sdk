@@ -68,7 +68,7 @@ func (s *SolanaWalletSigner) SignMessage(message []byte) ([]byte, error) {
 
 // SIWxAuthResult contains the result of a SIWx authentication.
 type SIWxAuthResult struct {
-	APIKey   string `json:"api_key"`
+	JWT      string `json:"jwt"`
 	TenantID string `json:"tenant_id"`
 	KeyID    string `json:"key_id"`
 }
@@ -83,11 +83,11 @@ type SIWxOptions struct {
 
 // AuthenticateWithSIWx performs SIWx (Sign-In-With-X) authentication
 // against the ARouter gateway. It signs a CAIP-122 message with the
-// provided wallet signer and calls POST /v1/x402/auth to obtain an API key.
+// provided wallet signer and calls POST /v1/x402/auth to obtain a wallet JWT.
 //
 //	signer := arouter.NewEvmWalletSigner(privateKey)
 //	result, err := arouter.AuthenticateWithSIWx(ctx, "https://api.arouter.ai", signer, nil)
-//	client := arouter.NewClient("https://api.arouter.ai", result.APIKey)
+//	client := arouter.NewClient("https://api.arouter.ai", result.JWT)
 func AuthenticateWithSIWx(ctx context.Context, baseURL string, signer WalletSigner, opts *SIWxOptions) (*SIWxAuthResult, error) {
 	parsed, err := url.Parse(baseURL)
 	if err != nil {
